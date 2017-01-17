@@ -203,12 +203,21 @@ FILE
   task :stage do
     Dir.mktmpdir("heroku-buildpack-ruby") do |tmpdir|
       Git.clone(File.expand_path("."), 'heroku-buildpack-ruby', path: tmpdir)
-      Dir.chdir(tmpdir) do |dir|
+      Dir.chdir(tmpdir) do
         streamer = lambda do |chunk, remaining_bytes, total_bytes|
           File.open("ruby.tgz", "w") {|file| file.print(chunk) }
         end
         Excon.get(latest_release["tar_link"], :response_block => streamer)
-        Dir.chdir("heroku-buildpack-ruby") do |dir|
+        Dir.chdir("heroku-buildpack-ruby") do |buildpack_dir|
+          $:.unshift File.expand_path("../lib", __FILE__)
+          require "language_pack/installers/heroku_ruby_installer"
+          require "language_pack/ruby_version"
+
+          %w(cedar-14 heroku-16).each do |stack|
+            installer    = LanguagePack::Installers::HerokuRubyInstaller.new(stack)
+            ruby_version = LanguagePack::RubyVersion.new("ruby-#{LanguagePack::RubyVersion::DEFAULT_VERSION_NUMBER}")
+            installer.fetch_unpack(ruby_version, "vendor/ruby/#{stack}")
+          end
           sh "tar xzf ../ruby.tgz .env"
           sh "tar czf ../buildpack.tgz * .env"
         end
@@ -291,4 +300,23 @@ begin
   end
   task :default => :spec
 rescue LoadError => e
+end
+
+namespace :travis do
+  task :setup do
+    sh "bundle exec hatchet install"
+    sh "if [ `git config --get user.email` ]; then echo 'already set'; else `git config --global user.email 'buildpack@example.com'`; fi"
+    sh "if [ `git config --get user.name` ];  then echo 'already set'; else `git config --global user.name  'BuildpackTester'`      ; fi"
+    sh "echo '
+Host heroku.com
+    StrictHostKeyChecking no
+    CheckHostIP no
+    UserKnownHostsFile=/dev/null
+    IdentityFile ~/.ssh/id_rsa
+Host github.com
+    StrictHostKeyChecking no
+' >> ~/.ssh/config"
+    sh "ssh-keygen -f ~/.ssh/id_rsa -t rsa -N ''"
+    sh "yes | heroku keys:add"
+  end
 end

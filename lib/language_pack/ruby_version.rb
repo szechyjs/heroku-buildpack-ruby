@@ -2,22 +2,23 @@ require "language_pack/shell_helpers"
 
 module LanguagePack
   class RubyVersion
-    class BadVersionError < StandardError
+    class BadVersionError < BuildpackError
       def initialize(output = "")
-        msg = "Can not parse Ruby Version:\n"
-        msg << "Valid versions listed on: https://devcenter.heroku.com/articles/ruby-support\n"
+        msg = ""
         msg << output
+        msg << "Can not parse Ruby Version:\n"
+        msg << "Valid versions listed on: https://devcenter.heroku.com/articles/ruby-support\n"
         super msg
       end
     end
 
-    DEFAULT_VERSION_NUMBER = "2.0.0"
+    DEFAULT_VERSION_NUMBER = "2.2.6"
     DEFAULT_VERSION        = "ruby-#{DEFAULT_VERSION_NUMBER}"
     LEGACY_VERSION_NUMBER  = "1.9.2"
     LEGACY_VERSION         = "ruby-#{LEGACY_VERSION_NUMBER}"
     RUBY_VERSION_REGEX     = %r{
         (?<ruby_version>\d+\.\d+\.\d+){0}
-        (?<patchlevel>p\d+){0}
+        (?<patchlevel>p-?\d+){0}
         (?<engine>\w+){0}
         (?<engine_version>.+){0}
 
@@ -34,7 +35,24 @@ module LanguagePack
       set_version
       parse_version
 
-      @version_without_patchlevel = @version.sub(/-p[\d]+/, '')
+      @version_without_patchlevel = @version.sub(/-p-?\d+/, '')
+    end
+
+    # https://github.com/bundler/bundler/issues/4621
+    def version_for_download
+      if rbx?
+        "rubinius-#{engine_version}"
+      elsif patchlevel_is_significant? && @patchlevel && @patchlevel.sub(/p/, '').to_i >= 0
+        @version
+      else
+        version_without_patchlevel
+      end
+    end
+
+    # Before Ruby 2.1 patch releases were done via patchlevel i.e. 1.9.3-p426 versus 1.9.3-p448
+    # With 2.1 and above patches are released in the "minor" version instead i.e. 2.1.0 versus 2.1.1
+    def patchlevel_is_significant?
+      Gem::Version.new(self.ruby_version) <= Gem::Version.new("2.1")
     end
 
     def rake_is_vendored?
