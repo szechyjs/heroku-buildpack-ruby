@@ -17,6 +17,7 @@ class LanguagePack::Ruby
         post_bundler
         create_database_yml
         install_binaries
+        yarn_install
         prepare_tests
       end
       super
@@ -24,6 +25,22 @@ class LanguagePack::Ruby
   end
 
   private
+
+  def yarn_install
+    instrument 'ruby.test.yarn_install' do
+      install = rake.task('yarn:install')
+      return true unless install.is_defined?
+
+      topic 'yarn install'
+      install.invoke(env: rake_env)
+      if install.success?
+        puts "yarn install completed (#{'%.2f' % install.time}s)"
+      else
+        log 'yarn install failed'
+      end
+    end
+  end
+
   def db_prepare_test_rake_tasks
     ["db:schema:load", "db:migrate"].map {|name| rake.task(name) }
   end
